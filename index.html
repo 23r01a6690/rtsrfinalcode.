@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FASTAID Ambulance Booking</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #fff5f5;
+      color: #333;
+    }
+
+    header {
+      background-color: #b71c1c;
+      color: white;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+    }
+
+    header img {
+      height: 140px; /* Increased 2x */
+      margin-right: 25px;
+    }
+
+    header h2 {
+      font-size: 32px;
+      margin: 0;
+    }
+
+    nav {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      background: #d32f2f;
+      padding: 10px;
+    }
+
+    nav button {
+      background: white;
+      border: none;
+      color: #b71c1c;
+      padding: 10px 20px;
+      font-weight: bold;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    section {
+      display: none;
+      padding: 20px;
+      max-width: 600px;
+      margin: auto;
+    }
+
+    section.active {
+      display: block;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    .submit {
+      background: #b71c1c;
+      color: white;
+      border: none;
+      padding: 12px;
+      border-radius: 5px;
+      width: 100%;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    #map {
+      height: 350px;
+      width: 100%;
+      margin-top: 20px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+
+    #result {
+      white-space: pre-line;
+    }
+
+    .driver-details {
+      background: #fff3e0;
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 15px;
+      border: 1px solid #ffccbc;
+    }
+
+    .logout {
+      background: #b71c1c;
+      color: white;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <img src="fastaid-logo.png" alt="FASTAID Logo" />
+  <h2>FASTAID - Emergency Ambulance Booking</h2>
+</header>
+
+<nav>
+  <button onclick="showSection('login')">Login</button>
+  <button onclick="showSection('signup')">Signup</button>
+  <button onclick="showSection('booking')">Book Ambulance</button>
+  <button onclick="showSection('profile')">Profile</button>
+</nav>
+
+<!-- Login Section -->
+<section id="login" class="active">
+  <h2>Login</h2>
+  <input type="email" id="loginEmail" placeholder="Email" />
+  <input type="password" id="loginPassword" placeholder="Password" />
+  <button class="submit" onclick="login()">Login</button>
+</section>
+
+<!-- Signup Section -->
+<section id="signup">
+  <h2>Signup</h2>
+  <input type="text" id="signupName" placeholder="Full Name" />
+  <input type="email" id="signupEmail" placeholder="Email" />
+  <input type="password" id="signupPassword" placeholder="Password" />
+  <button class="submit" onclick="signup()">Signup</button>
+</section>
+
+<!-- Booking Section -->
+<section id="booking">
+  <h2>Enter Booking Details</h2>
+  <input type="text" id="pickup" placeholder="Pickup Address" />
+  <input type="text" id="drop" placeholder="Drop Address" />
+  <select id="serviceType">
+    <option value="basic">Basic</option>
+    <option value="advanced">Advanced</option>
+    <option value="icu">ICU</option>
+  </select>
+  <select id="ac">
+    <option value="nonac">Non-AC</option>
+    <option value="ac">AC</option>
+  </select>
+  <button class="submit" onclick="calculateRoute()">Confirm Booking</button>
+
+  <div id="result" style="margin-top: 15px; font-weight: bold;"></div>
+  <div class="driver-details" id="driverDetails" style="display:none;">
+    <h4>Driver Details</h4>
+    <p><strong>Name:</strong> Rajesh Kumar</p>
+    <p><strong>Phone:</strong> +91-9876543210</p>
+    <p><strong>Vehicle No:</strong> TS 1AB 1234</p>
+  </div>
+  <div id="map"></div>
+</section>
+
+<!-- Profile Section -->
+<section id="profile">
+  <h2>User Profile</h2>
+  <p><strong>Name:</strong> <span id="profileName"></span></p>
+  <p><strong>Email:</strong> <span id="profileEmail"></span></p>
+  <button class="logout" onclick="logout()">Logout</button>
+</section>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  let currentUser = null;
+  let map;
+  let markers = [];
+
+  function initMap() {
+    map = L.map('map').setView([20.5937, 78.9629], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+    }).addTo(map);
+  }
+
+  function showSection(id) {
+    document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+
+    if (id === "booking") {
+      setTimeout(() => {
+        if (!map) initMap();
+        map.invalidateSize(); // Fix map load issue
+      }, 100);
+    }
+
+    if (id === "profile" && currentUser) {
+      document.getElementById("profileName").innerText = currentUser.name;
+      document.getElementById("profileEmail").innerText = currentUser.email;
+    }
+  }
+
+  async function geocode(address) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.length === 0) throw new Error("Invalid address");
+    return {
+      lat: parseFloat(data[0].lat),
+      lon: parseFloat(data[0].lon)
+    };
+  }
+
+  function getDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+
+  async function calculateRoute() {
+    const pickup = document.getElementById("pickup").value.trim();
+    const drop = document.getElementById("drop").value.trim();
+    const serviceType = document.getElementById("serviceType").value;
+    const acType = document.getElementById("ac").value;
+
+    if (!pickup || !drop) {
+      alert("Please enter both pickup and drop locations.");
+      return;
+    }
+
+    try {
+      const pickupCoords = await geocode(pickup);
+      const dropCoords = await geocode(drop);
+
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+
+      const marker1 = L.marker([pickupCoords.lat, pickupCoords.lon]).addTo(map).bindPopup("Pickup").openPopup();
+      const marker2 = L.marker([dropCoords.lat, dropCoords.lon]).addTo(map).bindPopup("Drop");
+
+      markers.push(marker1, marker2);
+      map.setView([pickupCoords.lat, pickupCoords.lon], 13);
+
+      const distance = getDistanceKm(pickupCoords.lat, pickupCoords.lon, dropCoords.lat, dropCoords.lon);
+
+      let ratePerKm = 20, acCharge = 0, equipCharge = 1500;
+      if (serviceType === "advanced") {
+        ratePerKm = 30; equipCharge = 3000;
+      } else if (serviceType === "icu") {
+        ratePerKm = 50; equipCharge = 5000;
+      }
+      acCharge = acType === "ac" ? (serviceType === "basic" ? 300 : serviceType === "advanced" ? 500 : 700) : 0;
+      const total = Math.round(distance * ratePerKm + acCharge + equipCharge);
+
+      document.getElementById("result").innerText = 
+        `🚑 Estimated Distance: ${distance.toFixed(2)} km\n💰 Estimated Charge: ₹${total}`;
+      document.getElementById("driverDetails").style.display = "block";
+
+    } catch (err) {
+      document.getElementById("result").innerText = "❌ Could not calculate route. Please check the address.";
+    }
+  }
+
+  function signup() {
+    const name = document.getElementById("signupName").value;
+    const email = document.getElementById("signupEmail").value;
+    const password = document.getElementById("signupPassword").value;
+
+    if (!name || !email || !password) {
+      alert("Please fill all fields.");
+      return;
+    }
+
+    localStorage.setItem("user", JSON.stringify({ name, email, password }));
+    alert("Signup successful! Please login.");
+    showSection("login");
+  }
+
+  function login() {
+    const email = document.getElementById("loginEmail").value;
+    const password = document.getElementById("loginPassword").value;
+    const user = JSON.parse(localStorage.getItem("user"));
+
+    if (user && user.email === email && user.password === password) {
+      currentUser = user;
+      alert("Login successful!");
+      showSection("profile");
+    } else {
+      alert("Invalid credentials.");
+    }
+  }
+
+  function logout() {
+    currentUser = null;
+    alert("Logged out.");
+    showSection("login");
+  }
+</script>
+
+</body>
+</html>
